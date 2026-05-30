@@ -206,7 +206,8 @@ var S = {
   quality: 'medium', listId: null, vidId: null,
   tracks: [], curIdx: -1, shufflePos: 0,
   audioUnlocked: false,
-  selectedPl: null   // currently selected saved playlist object
+  selectedPl: null,
+  _pendingAudioOnly: false   // currently selected saved playlist object
 };
 var shuffleOrder = [];
 var titleCache   = {};
@@ -342,6 +343,10 @@ function launch() {
   document.getElementById('player-pl-name').textContent = S.selectedPl ? S.selectedPl.name : 'Playlist';
   document.getElementById('setup').style.display='none';
   document.getElementById('player').style.display='flex';
+  // Always start in video mode so iOS audio unlocks correctly.
+  // If user chose audio-only, we apply it after first PLAYING event fires.
+  S._pendingAudioOnly = S.audioOnly;  // remember their preference
+  S.audioOnly = false;                // force video mode for first load
   applyAudioMode();
   document.getElementById('now-badge').textContent = QMAP[S.quality]||S.quality;
   setVideoHeight();
@@ -371,11 +376,11 @@ function fetchInnerTubePage(listId, continuation, acc) {
         context: { client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en' } }
       };
 
-  // YouTube blocks direct CORS - route through allorigins proxy
-  var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+  // YouTube blocks direct CORS - use corsproxy.io which supports POST
+  var proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
   fetch(proxyUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-cors-api-key': 'temp_' },
     body: JSON.stringify(body)
   })
   .then(function(r) {
@@ -513,18 +518,12 @@ function onState(e) {
       // we rely entirely on src-swap for volume control.
       S.audioUnlocked=true;
       document.getElementById('first-hint').classList.add('gone');
-      // Get current video ID from the player
-      try {
-        var d = e.target.getVideoData ? e.target.getVideoData() : null;
-        var vid = d ? d.video_id : null;
-        if (!vid && S.tracks.length > 0) vid = S.tracks[S.curIdx >= 0 ? S.curIdx : 0].id;
-        if (vid) {
-          // Small delay so current play isn't interrupted
-          setTimeout(function() {
-            if (S.audioUnlocked) playTrackBySrc(vid, S.listId);
-          }, 800);
-        }
-      } catch(err) {}
+      // Now apply the user's audio-only preference if they had set it
+      if (S._pendingAudioOnly) {
+        S.audioOnly = true;
+        applyAudioMode();
+        S._pendingAudioOnly = false;
+      }
     }
     document.getElementById('b-pp').textContent='⏸';
     syncNowPlaying();
