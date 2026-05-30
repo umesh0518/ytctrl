@@ -395,9 +395,9 @@ var S = {
   quality:   'medium',
   listId:    null,
   vidId:     null,
-  // Track list data
-  tracks:    [],        // [{id, title, channel, thumbLoaded}]
-  curIdx:    -1,        // playlist index from YT API
+  tracks:    [],
+  curIdx:    -1,
+  shufflePos: 0,
 };
 
 // Title fetch cache: videoId -> {title, channel}
@@ -523,6 +523,7 @@ function makePlayer() {
     origin:         window.location.origin
   };
   if (S.listId) { vars.list = S.listId; vars.listType = 'playlist'; }
+  // Note: shuffle is handled client-side via shuffleOrder, not YouTube's API
   if (S.vidId)  { vars.videoId = S.vidId; }
   if (S.repeat) { vars.loop = 1; if (S.listId) vars.playlist = S.listId; }
 
@@ -564,7 +565,11 @@ function onState(e) {
     S.playing = false;
     document.getElementById('b-pp').textContent = '▶';
   } else if (e.data === PS.ENDED) {
-    if (!S.repeat) ytCmd('nextVideo');
+    if (S.repeat) {
+      try { S.ytp.seekTo(0); S.ytp.playVideo(); } catch(e) {}
+    } else {
+      ytCmd('nextVideo');
+    }
   }
 }
 
@@ -581,7 +586,16 @@ function onError(e) {
 function tapStart() {
   if (!S.ready) return;
   document.getElementById('play-ov').classList.add('gone');
-  try { S.ytp.playVideo(); } catch(e) {}
+  try {
+    // iOS requires mute trick: mute first, play, then unmute
+    // This satisfies WebKit autoplay policy reliably
+    S.ytp.mute();
+    S.ytp.playVideo();
+    // Unmute after a short delay once playback has started
+    setTimeout(function() {
+      try { S.ytp.unMute(); S.ytp.setVolume(100); } catch(e) {}
+    }, 800);
+  } catch(e) {}
 }
 
 function togglePlay() {
@@ -591,6 +605,21 @@ function togglePlay() {
 
 function ytCmd(fn) {
   if (!S.ready) return;
+  // If shuffle is on, handle next/prev ourselves
+  if (S.shuffle && shuffleOrder.length > 0) {
+    if (fn === 'nextVideo') {
+      S.shufflePos = (S.shufflePos + 1) % shuffleOrder.length;
+      try { S.ytp.playVideoAt(shuffleOrder[S.shufflePos]); } catch(e) {}
+      setTimeout(function() { syncNowPlaying(); highlightCurrent(); }, 700);
+      return;
+    }
+    if (fn === 'previousVideo') {
+      S.shufflePos = (S.shufflePos - 1 + shuffleOrder.length) % shuffleOrder.length;
+      try { S.ytp.playVideoAt(shuffleOrder[S.shufflePos]); } catch(e) {}
+      setTimeout(function() { syncNowPlaying(); highlightCurrent(); }, 700);
+      return;
+    }
+  }
   try { S.ytp[fn](); } catch(e) {}
   setTimeout(function() { syncNowPlaying(); highlightCurrent(); }, 700);
 }
@@ -617,10 +646,30 @@ function applyAudioMode() {
   lbl.textContent = S.audioOnly ? 'Audio only' : 'Video on';
 }
 
+// Shuffle order array — holds indices into S.tracks
+var shuffleOrder = [];
+
+function buildShuffleOrder() {
+  shuffleOrder = S.tracks.map(function(_, i) { return i; });
+  // Fisher-Yates shuffle
+  for (var i = shuffleOrder.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = shuffleOrder[i]; shuffleOrder[i] = shuffleOrder[j]; shuffleOrder[j] = tmp;
+  }
+}
+
 function toggleShuffle() {
   S.shuffle = !S.shuffle;
   document.getElementById('p-shuf').classList.toggle('shuf-on', S.shuffle);
-  if (S.ready) rebuildPlayer();
+  if (S.shuffle && S.tracks.length > 0) {
+    buildShuffleOrder();
+    // Jump to first in shuffle order
+    if (S.ready) {
+      try { S.ytp.playVideoAt(shuffleOrder[0]); } catch(e) {}
+      S.shufflePos = 0;
+      setTimeout(function() { syncNowPlaying(); highlightCurrent(); }, 700);
+    }
+  }
 }
 
 function toggleRepeat() {
@@ -682,6 +731,9 @@ function buildTrackList() {
   renderTrackList();
   syncNowPlaying();
   highlightCurrent();
+
+  // If shuffle was already on when list loaded, build the order now
+  if (S.shuffle) buildShuffleOrder();
 
   // Lazy-fetch titles for visible tracks
   setupLazyFetch();
