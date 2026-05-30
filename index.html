@@ -197,21 +197,6 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:'Syne',s
 </div>
 
 <script>
-// Expose all onclick-callable functions to window scope
-// (prevents "not defined" errors when script loads after HTML)
-function _expose() {
-  var fns = ['toggleSetupAudio','savePlaylist','clearAddForm','selectPlaylist',
-             'deletePlaylist','launch','navTrack','ytSeek','togglePlay',
-             'toggleAudio','toggleShuffle','toggleRepeat','jumpToTrack','goBack'];
-  fns.forEach(function(fn) {
-    window[fn] = function() {
-      var f = eval(fn); // safe - only our own fn names
-      return f.apply(this, arguments);
-    };
-  });
-}
-document.addEventListener('DOMContentLoaded', _expose);
-
 // ═══════════════════════════════════════════
 // State
 // ═══════════════════════════════════════════
@@ -777,6 +762,22 @@ function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').repla
 // ═══════════════════════════════════════════
 // Init
 // ═══════════════════════════════════════════
+// Direct window assignments — no wrapper, no recursion
+window.toggleSetupAudio = toggleSetupAudio;
+window.savePlaylist      = savePlaylist;
+window.clearAddForm      = clearAddForm;
+window.selectPlaylist    = selectPlaylist;
+window.deletePlaylist    = deletePlaylist;
+window.launch            = launch;
+window.navTrack          = navTrack;
+window.ytSeek            = ytSeek;
+window.togglePlay        = togglePlay;
+window.toggleAudio       = toggleAudio;
+window.toggleShuffle     = toggleShuffle;
+window.toggleRepeat      = toggleRepeat;
+window.jumpToTrack       = jumpToTrack;
+window.goBack            = goBack;
+
 loadPrefs();
 renderSavedList();
 window.addEventListener('resize', function(){ if(document.getElementById('player').style.display!=='none') setVideoHeight(); });
