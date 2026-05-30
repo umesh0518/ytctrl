@@ -371,9 +371,7 @@ function fetchInnerTubePage(listId, continuation, acc) {
         context: { client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en' } }
       };
 
-  // YouTube blocks direct CORS - route through allorigins proxy
-  var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-  fetch(proxyUrl, {
+  fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
@@ -507,26 +505,12 @@ function onState(e) {
   if (e.data===PS.PLAYING) {
     S.playing=true;
     if (!S.audioUnlocked) {
-      // First play: audio is unlocked by native tap.
-      // Now rebuild iframe with autoplay=1 so all future track switches
-      // also play unmuted. postMessage is broken (origin mismatch) so
-      // we rely entirely on src-swap for volume control.
       S.audioUnlocked=true;
       document.getElementById('first-hint').classList.add('gone');
-      // Get current video ID from the player
-      try {
-        var d = e.target.getVideoData ? e.target.getVideoData() : null;
-        var vid = d ? d.video_id : null;
-        if (!vid && S.tracks.length > 0) vid = S.tracks[S.curIdx >= 0 ? S.curIdx : 0].id;
-        if (vid) {
-          // Small delay so current play isn't interrupted
-          setTimeout(function() {
-            if (S.audioUnlocked) playTrackBySrc(vid, S.listId);
-          }, 800);
-        }
-      } catch(err) {}
     }
     document.getElementById('b-pp').textContent='⏸';
+    // Guarantee volume is up — covers iOS resetting it on track switch
+    forceVolume();
     syncNowPlaying();
     highlightCurrent();
   } else if (e.data===PS.BUFFERING || e.data===PS.PAUSED) {
@@ -576,9 +560,14 @@ function playTrackBySrc(videoId, playlistId) {
 }
 
 function forceVolume() {
-  // postMessage to cross-origin iframe is blocked (origin mismatch).
-  // Volume is controlled via iframe src rebuilds (playTrackBySrc) instead.
-  // This function is kept as a no-op so call sites don't break.
+  // Keep for initial play only (before first track switch)
+  if (unmuteTimer) clearInterval(unmuteTimer);
+  var attempts = 0;
+  unmuteTimer = setInterval(function() {
+    attempts++;
+    try { if (S.ytp) { S.ytp.setVolume(100); S.ytp.unMute(); } } catch(e) {}
+    if (attempts >= 6) clearInterval(unmuteTimer);
+  }, 300);
 }
 
 // ═══════════════════════════════════════════
