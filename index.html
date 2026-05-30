@@ -403,6 +403,7 @@ function makePlayer() {
     playsinline:    1,
     enablejsapi:    1,
     volume:         100,    // start fully unmuted
+    mute:           0,      // explicit unmute in playerVars
     vq:             S.quality,
     origin:         window.location.origin
   };
@@ -442,7 +443,12 @@ function onState(e) {
     forceVolume();
     syncNowPlaying();
     highlightCurrent();
-  } else if (e.data===PS.PAUSED||e.data===PS.BUFFERING) {
+  } else if (e.data===PS.BUFFERING) {
+    S.playing=false;
+    document.getElementById('b-pp').textContent='▶';
+    // iOS: new video starts buffering = call forceVolume now before PLAYING fires
+    forceVolume();
+  } else if (e.data===PS.PAUSED) {
     S.playing=false;
     document.getElementById('b-pp').textContent='▶';
   } else if (e.data===PS.ENDED) {
@@ -462,17 +468,22 @@ function onError(e) {
 // ═══════════════════════════════════════════
 function forceVolume() {
   if (unmuteTimer) clearInterval(unmuteTimer);
+  // Call immediately in next animation frame
+  requestAnimationFrame(function() {
+    try { if (S.ytp) { S.ytp.setVolume(100); S.ytp.unMute(); } } catch(e) {}
+  });
+  // Then retry every 250ms for 4s as backup (iOS loads new video async)
   var attempts = 0;
   unmuteTimer = setInterval(function() {
     attempts++;
     try {
       if (S.ytp) {
+        S.ytp.setVolume(100);  // setVolume BEFORE unMute - order matters on iOS
         S.ytp.unMute();
-        S.ytp.setVolume(100);
       }
     } catch(e) {}
-    if (attempts >= 10) clearInterval(unmuteTimer); // stop after 3s
-  }, 300);
+    if (attempts >= 16) clearInterval(unmuteTimer);
+  }, 250);
 }
 
 // ═══════════════════════════════════════════
@@ -497,8 +508,7 @@ function navTrack(dir) {
   }
   if (targetIdx>=0) {
     try { S.ytp.playVideoAt(targetIdx); } catch(e){}
-    // Start forceVolume immediately AND on next state change
-    setTimeout(forceVolume, 200);
+    forceVolume();  // call immediately + retry loop handles async iOS video load
   }
   setTimeout(function(){ syncNowPlaying(); highlightCurrent(); },700);
 }
