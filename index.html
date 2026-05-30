@@ -140,6 +140,11 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:'Syne',s
       <button class="add-btn" onclick="savePlaylist()">Save</button>
       <button class="add-btn sec" onclick="clearAddForm()">Clear</button>
     </div>
+    <div class="add-form-title" style="margin-top:8px">Paste Video IDs (unlisted / 700+ songs)</div>
+    <textarea class="inp" id="ids-paste" rows="3" placeholder="Paste one video ID or URL per line&#10;dQw4w9WgXcQ&#10;https://youtube.com/watch?v=abc123&#10;(get these from browser console — see hint below)" autocomplete="off" spellcheck="false" style="resize:vertical;font-size:11px;line-height:1.6;"></textarea>
+    <div class="add-row">
+      <button class="add-btn" onclick="importFromPaste()">Import IDs</button>
+    </div>
   </div>
 
   <div class="opts">
@@ -157,7 +162,13 @@ html,body{height:100%;background:var(--bg);color:var(--txt);font-family:'Syne',s
 
   <div id="err-msg"></div>
   <button class="go-btn" id="go-btn" onclick="launch()" disabled>Select a playlist above →</button>
-  <p class="hint">Brave browser: ad-free + background + lock screen.<br>Tap a saved playlist, then press play.</p>
+  <p class="hint">
+    Brave: ad-free · background · lock screen.<br>
+    <b style="color:var(--sub)">Get all 700+ IDs:</b> Open your playlist in YouTube,<br>
+    open DevTools Console (F12), paste this and hit Enter:<br>
+    <span style="font-size:9px;color:#444;word-break:break-all">console.log([...document.querySelectorAll('a#video-title')].map(a=>a.href.match(/v=([^&]+)/)?.[1]).filter(Boolean).join('\n'))</span><br>
+    Copy the output, paste into the field above → Import IDs.
+  </p>
 </div>
 
 <!-- ══ PLAYER ══ -->
@@ -212,7 +223,7 @@ var titleCache   = {};
 var fetchingIds  = {};
 var unmuteTimer  = null;  // interval handle for retry-unmute
 
-var PIPED_HOSTS = ['pipedapi.kavin.rocks','piped-api.lunar.icu','api.piped.yt','watchapi.kirottu.com'];
+var INNERTUBE_KEY = ''; // not needed for browse endpoint
 var QMAP = {tiny:'144p',small:'240p',medium:'360p',large:'480p',hd720:'720p'};
 
 // ═══════════════════════════════════════════
@@ -261,10 +272,11 @@ function savePlaylist() {
   if (!ids.list && !ids.v) { showErr('No YouTube playlist or video ID found in that URL.'); return; }
   hideErr();
   var arr = loadSaved();
-  // Check if editing existing
   var existing = arr.find(function(p){ return S.selectedPl && p.id === S.selectedPl.id; });
   if (existing) {
     existing.name = name; existing.url = url;
+    // Keep existing videoIds if URL unchanged
+    if (existing.url !== url) delete existing.videoIds;
   } else {
     arr.push({ id: Date.now().toString(), name: name, url: url });
   }
@@ -273,15 +285,55 @@ function savePlaylist() {
   clearAddForm();
 }
 
+function importFromPaste() {
+  var name  = document.getElementById('pl-name').value.trim();
+  var url   = document.getElementById('url-in').value.trim();
+  var paste = document.getElementById('ids-paste').value.trim();
+  if (!name) { showErr('Enter a playlist name first.'); return; }
+  if (!paste){ showErr('Paste some video IDs or URLs first.'); return; }
+  hideErr();
+
+  // Parse each line — accept raw IDs (11 chars) or full URLs
+  var lines = paste.split(/[
+
+,]+/).map(function(l){ return l.trim(); }).filter(Boolean);
+  var videoIds = [];
+  lines.forEach(function(line) {
+    // Try as URL first
+    var m = line.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    if (m) { videoIds.push(m[1]); return; }
+    // Raw 11-char ID
+    if (/^[A-Za-z0-9_-]{11}$/.test(line)) { videoIds.push(line); return; }
+  });
+
+  if (videoIds.length === 0) { showErr('No valid video IDs found. Each line should be a YouTube URL or 11-character video ID.'); return; }
+
+  var arr = loadSaved();
+  var existing = arr.find(function(p){ return S.selectedPl && p.id === S.selectedPl.id; });
+  var entry = { id: Date.now().toString(), name: name, url: url || '', videoIds: videoIds };
+  if (existing) {
+    existing.name = name; existing.url = url || existing.url; existing.videoIds = videoIds;
+  } else {
+    arr.push(entry);
+  }
+  writeSaved(arr);
+  renderSavedList();
+  document.getElementById('ids-paste').value = '';
+  showErr('✓ Imported ' + videoIds.length + ' tracks into "' + name + '"');
+  document.getElementById('err-msg').style.color = '#6f6';
+}
+
 function selectPlaylist(id) {
   var arr = loadSaved();
   var pl  = arr.find(function(p){ return p.id === id; });
   if (!pl) return;
   S.selectedPl = pl;
-  document.getElementById('url-in').value  = pl.url;
-  document.getElementById('pl-name').value = pl.name;
+  document.getElementById('url-in').value   = pl.url || '';
+  document.getElementById('pl-name').value  = pl.name;
+  document.getElementById('ids-paste').value = '';
+  var trackInfo = pl.videoIds ? pl.videoIds.length + ' tracks imported' : 'no IDs imported';
   document.getElementById('go-btn').disabled = false;
-  document.getElementById('go-btn').textContent = 'Play "' + pl.name + '" →';
+  document.getElementById('go-btn').textContent = 'Play "' + pl.name + '" (' + trackInfo + ') →';
   renderSavedList();
   hideErr();
 }
@@ -299,8 +351,10 @@ function deletePlaylist(id) {
 }
 
 function clearAddForm() {
-  document.getElementById('pl-name').value = '';
-  document.getElementById('url-in').value  = '';
+  document.getElementById('pl-name').value  = '';
+  document.getElementById('url-in').value   = '';
+  document.getElementById('ids-paste').value = '';
+  document.getElementById('err-msg').style.color = '#ff7755';
   S.selectedPl = null;
   document.getElementById('go-btn').disabled = true;
   document.getElementById('go-btn').textContent = 'Select a playlist above →';
@@ -343,43 +397,120 @@ function launch() {
   applyAudioMode();
   document.getElementById('now-badge').textContent = QMAP[S.quality]||S.quality;
   setVideoHeight();
-  if (S.listId) fetchFullPlaylist(S.listId);
+  // If playlist has pre-loaded videoIds, use them directly (bypasses 200 cap)
+  if (S.selectedPl && S.selectedPl.videoIds && S.selectedPl.videoIds.length > 0) {
+    S.tracks = S.selectedPl.videoIds.map(function(id) {
+      return { id: id, title: titleCache[id] ? titleCache[id].title : null, channel: titleCache[id] ? titleCache[id].channel : null };
+    });
+    document.getElementById('list-count').textContent = S.tracks.length + ' tracks';
+    renderTrackList();
+  } else if (S.listId) {
+    fetchFullPlaylist(S.listId);
+  }
   if (window.YT && window.YT.Player) makePlayer();
 }
 
 // ═══════════════════════════════════════════
 // Piped API — fetch all tracks
 // ═══════════════════════════════════════════
+// ── InnerTube API: fetch full playlist from YouTube directly ──
 function fetchFullPlaylist(listId) {
   document.getElementById('playlist-loading').classList.add('show');
-  tryPipedHost(0, listId, []);
+  document.getElementById('pl-txt').textContent = 'Fetching playlist…';
+  fetchInnerTubePage(listId, null, []);
 }
-function tryPipedHost(hi, listId, acc) {
-  if (hi >= PIPED_HOSTS.length) { document.getElementById('playlist-loading').classList.remove('show'); buildTrackListFromIframe(); return; }
-  fetchPipedPage('https://'+PIPED_HOSTS[hi]+'/playlists/'+listId, listId, PIPED_HOSTS[hi], hi, acc);
-}
-function fetchPipedPage(url, listId, host, hi, acc) {
-  fetch(url, {signal:AbortSignal.timeout(8000)})
-    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-    .then(function(data){
-      (data.relatedStreams||[]).forEach(function(v){
-        var id=(v.url||'').replace('/watch?v=','');
-        if(id) acc.push({id:id,title:v.title||null,channel:v.uploaderName||null});
-      });
-      document.getElementById('pl-txt').textContent='Loading… '+acc.length+' tracks';
-      if (data.nextpage && acc.length<5000) {
-        fetchPipedPage('https://'+host+'/nextpage/playlists/'+listId+'?nextpage='+encodeURIComponent(data.nextpage),listId,host,hi,acc);
-      } else {
-        document.getElementById('playlist-loading').classList.remove('show');
-        if (acc.length>0) {
-          acc.forEach(function(t){ if(t.title) titleCache[t.id]={title:t.title,channel:t.channel||''}; });
-          S.tracks=acc;
-          document.getElementById('list-count').textContent=acc.length+' tracks';
-          renderTrackList(); syncNowPlaying(); highlightCurrent();
-        } else { buildTrackListFromIframe(); }
+
+function fetchInnerTubePage(listId, continuation, acc) {
+  var url = 'https://www.youtube.com/youtubei/v1/browse';
+  var body = continuation
+    ? {
+        continuation: continuation,
+        context: { client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en' } }
       }
-    })
-    .catch(function(){ tryPipedHost(hi+1,listId,[]); });
+    : {
+        browseId: 'VL' + listId,
+        context: { client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en' } }
+      };
+
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  .then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  })
+  .then(function(data) {
+    var token = null;
+    var videos = extractInnerTubeVideos(data, function(t) { token = t; });
+    videos.forEach(function(v) { acc.push(v); });
+    document.getElementById('pl-txt').textContent = 'Loading… ' + acc.length + ' tracks';
+
+    if (token && acc.length < 5000) {
+      // Small delay to avoid rate limiting
+      setTimeout(function() { fetchInnerTubePage(listId, token, acc); }, 300);
+    } else {
+      onPlaylistLoaded(acc, listId);
+    }
+  })
+  .catch(function(e) {
+    console.warn('InnerTube failed:', e);
+    document.getElementById('playlist-loading').classList.remove('show');
+    buildTrackListFromIframe();
+  });
+}
+
+function extractInnerTubeVideos(data, onToken) {
+  var videos = [];
+  // Walk the response tree looking for playlistVideoRenderer items
+  function walk(obj, depth) {
+    if (!obj || depth > 25) return;
+    if (Array.isArray(obj)) { obj.forEach(function(i) { walk(i, depth+1); }); return; }
+    if (typeof obj !== 'object') return;
+
+    // Video item
+    if (obj.playlistVideoRenderer) {
+      var r = obj.playlistVideoRenderer;
+      var id = r.videoId;
+      if (id) {
+        var title = '';
+        try { title = r.title.runs[0].text; } catch(e) { try { title = r.title.simpleText; } catch(e2) {} }
+        var channel = '';
+        try { channel = r.shortBylineText.runs[0].text; } catch(e) {}
+        videos.push({ id: id, title: title || null, channel: channel || null });
+      }
+      return;
+    }
+
+    // Continuation token
+    if (obj.continuationItemRenderer) {
+      try {
+        var tok = obj.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+        if (tok) onToken(tok);
+      } catch(e) {}
+      return;
+    }
+
+    // Recurse
+    Object.keys(obj).forEach(function(k) { walk(obj[k], depth+1); });
+  }
+  walk(data, 0);
+  return videos;
+}
+
+function onPlaylistLoaded(acc, listId) {
+  document.getElementById('playlist-loading').classList.remove('show');
+  if (acc.length > 0) {
+    acc.forEach(function(t) { if (t.title) titleCache[t.id] = { title: t.title, channel: t.channel||'' }; });
+    S.tracks = acc;
+    document.getElementById('list-count').textContent = acc.length + ' tracks';
+    renderTrackList();
+    syncNowPlaying();
+    highlightCurrent();
+  } else {
+    buildTrackListFromIframe();
+  }
 }
 function buildTrackListFromIframe() {
   if (!S.ready||!S.ytp) return;
