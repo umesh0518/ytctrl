@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>YTctrl</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+/* ── Tokens ── */
+:root {
+  --bg: #0a0a0a;
+  --s1: #141414;
+  --s2: #1c1c1c;
+  --s3: #242424;
+  --acc: #e8382a;
+  --acc2: #ff6b35;
+  --txt: #efefef;
+  --sub: #888;
+  --dim: #444;
+  --r: 13px;
+  --safe: env(safe-area-inset-bottom, 14px);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; background: var(--bg); color: var(--txt); font-family: 'Syne', sans-serif; overflow: hidden; }
+
+/* ════════════════════════════════════
+   SETUP SCREEN
+════════════════════════════════════ */
+#setup {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; padding: 36px 22px; min-height: 100dvh;
+  background: radial-gradient(ellipse at 25% 15%, #1f0808 0%, var(--bg) 65%);
+}
+
+.logo { display: flex; align-items: center; gap: 12px; }
+.logo-mark {
+  width: 46px; height: 46px; background: var(--acc); border-radius: 13px;
+  display: flex; align-items: center; justify-content: center; font-size: 22px;
+  box-shadow: 0 4px 20px rgba(232,56,42,.4);
+}
+.logo-word { font-size: 26px; font-weight: 800; letter-spacing: -.5px; }
+.logo-word span { color: var(--acc); }
+
+.tagline {
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  color: var(--sub); text-align: center; line-height: 1.9;
+}
+
+.field { width: 100%; display: flex; flex-direction: column; gap: 7px; }
+.field-label {
+  font-family: 'DM Mono', monospace; font-size: 9.5px;
+  color: var(--dim); letter-spacing: .12em; text-transform: uppercase;
+}
+#url-in {
+  width: 100%; padding: 14px 15px;
+  background: var(--s1); border: 1.5px solid #2a2a2a; border-radius: var(--r);
+  color: var(--txt); font-family: 'DM Mono', monospace; font-size: 13px;
+  outline: none; transition: border-color .2s;
+}
+#url-in:focus { border-color: var(--acc); }
+#url-in::placeholder { color: #303030; }
+
+/* Options row */
+.opts { display: flex; gap: 10px; width: 100%; align-items: stretch; }
+#q-sel {
+  flex: 1; padding: 12px 14px;
+  background: var(--s1); border: 1.5px solid #2a2a2a; border-radius: var(--r);
+  color: var(--txt); font-family: 'DM Mono', monospace; font-size: 12px;
+  outline: none; appearance: none; -webkit-appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 5 5-5' stroke='%23555' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+}
+#audio-setup-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; background: var(--s1); border: 1.5px solid #2a2a2a;
+  border-radius: var(--r); color: var(--sub); font-family: 'DM Mono', monospace;
+  font-size: 11px; cursor: pointer; transition: all .2s; white-space: nowrap;
+}
+#audio-setup-btn.on { border-color: var(--acc); color: var(--acc); background: #160505; }
+.toggle-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+.go-btn {
+  width: 100%; padding: 16px;
+  background: var(--acc); color: #fff; border: none; border-radius: var(--r);
+  font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700;
+  cursor: pointer; letter-spacing: .02em;
+  transition: opacity .15s, transform .1s;
+  box-shadow: 0 4px 18px rgba(232,56,42,.35);
+}
+.go-btn:active { opacity: .85; transform: scale(.98); }
+
+#err-msg {
+  display: none; width: 100%; padding: 11px 14px;
+  background: #180606; border: 1px solid #4a1010; border-radius: 10px;
+  font-family: 'DM Mono', monospace; font-size: 11.5px; color: #ff7755; line-height: 1.6;
+}
+.hint {
+  font-family: 'DM Mono', monospace; font-size: 10.5px;
+  color: var(--dim); text-align: center; line-height: 2;
+}
+.hint a { color: #555; text-decoration: none; }
+
+/* ════════════════════════════════════
+   PLAYER SCREEN
+════════════════════════════════════ */
+#player {
+  display: none; flex-direction: column;
+  height: 100dvh; width: 100%;
+}
+
+/* ── Video area ── */
+#yt-wrap {
+  position: relative; background: #000; flex-shrink: 0;
+  width: 100%; transition: height .3s ease;
+}
+#yt-wrap.audio-only { height: 0 !important; overflow: hidden; }
+#yt-player-div { width: 100%; height: 100%; }
+
+/* Loading overlay */
+#yt-loading {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: #000;
+}
+#yt-loading.gone { display: none; }
+.spinner { width: 34px; height: 34px; border: 3px solid #222; border-top-color: var(--acc); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin-txt { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--sub); }
+
+/* Play overlay */
+#play-ov {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(0,0,0,.65); cursor: pointer;
+}
+#play-ov.gone { display: none; }
+.play-ring {
+  width: 66px; height: 66px; border-radius: 50%; background: var(--acc);
+  display: flex; align-items: center; justify-content: center; font-size: 28px;
+  box-shadow: 0 0 30px rgba(232,56,42,.5);
+}
+.play-hint { font-family: 'DM Mono', monospace; font-size: 11px; color: rgba(255,255,255,.6); }
+
+/* Audio-mode banner */
+#audio-banner {
+  display: none; flex-shrink: 0;
+  align-items: center; justify-content: center; gap: 12px;
+  padding: 13px 20px; background: var(--s1); border-bottom: 1px solid #1e1e1e;
+}
+#audio-banner.show { display: flex; }
+.eq { display: flex; gap: 3px; align-items: flex-end; height: 18px; }
+.eq span { width: 3px; background: var(--acc); border-radius: 2px; animation: eq-bar 1s ease-in-out infinite; }
+.eq span:nth-child(1){height:7px;} .eq span:nth-child(2){height:15px;animation-delay:.15s;} .eq span:nth-child(3){height:10px;animation-delay:.3s;} .eq span:nth-child(4){height:18px;animation-delay:.08s;}
+@keyframes eq-bar { 0%,100%{transform:scaleY(.35);opacity:.4;} 50%{transform:scaleY(1);opacity:1;} }
+.ban-txt { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--sub); }
+.ban-txt b { color: var(--acc); }
+
+/* ── Now playing bar ── */
+#now-bar {
+  flex-shrink: 0; padding: 9px 16px;
+  background: #0f0f0f; border-bottom: 1px solid #181818;
+  display: flex; align-items: center; gap: 10px; min-height: 40px;
+}
+#now-idx { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--dim); white-space: nowrap; }
+#now-title {
+  flex: 1; font-size: 12.5px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--txt);
+}
+#now-badge { font-family: 'DM Mono', monospace; font-size: 9.5px; padding: 3px 7px; background: var(--s2); border-radius: 5px; color: var(--dim); }
+
+/* ── Main controls ── */
+#ctrl {
+  flex-shrink: 0; padding: 12px 16px 10px;
+  background: var(--s1); border-bottom: 1px solid #1a1a1a;
+}
+.ctrl-row1 { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
+.ctrl-row2 { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+
+.btn {
+  height: 50px; border-radius: 12px; border: none;
+  background: var(--s2); color: var(--txt); font-size: 19px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: opacity .15s, transform .1s; flex: 1;
+}
+.btn:active { opacity: .65; transform: scale(.93); }
+.btn.play-btn { background: var(--acc); height: 60px; border-radius: 15px; font-size: 24px; flex: 1.5; box-shadow: 0 3px 14px rgba(232,56,42,.3); }
+.btn:disabled { opacity: .25; pointer-events: none; }
+
+.pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px; background: var(--s2); border: 1.5px solid transparent;
+  border-radius: 50px; color: var(--sub); font-family: 'DM Mono', monospace;
+  font-size: 10.5px; cursor: pointer; transition: all .15s;
+}
+.pill:active { opacity: .7; }
+.pill.on { border-color: var(--acc); color: var(--acc); background: #160404; }
+.pill.shuf-on { border-color: #5599ff; color: #5599ff; background: #010a18; }
+.pdot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.back-pill {
+  padding: 7px 12px; background: var(--s2); border: none; border-radius: 50px;
+  color: var(--sub); font-family: 'DM Mono', monospace; font-size: 10.5px; cursor: pointer;
+}
+
+/* ── Track list ── */
+#track-list-wrap {
+  flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.list-header {
+  position: sticky; top: 0; z-index: 5;
+  padding: 10px 16px 8px;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid #151515;
+}
+.list-title { font-family: 'DM Mono', monospace; font-size: 9.5px; color: var(--dim); letter-spacing: .1em; text-transform: uppercase; }
+#list-count { font-family: 'DM Mono', monospace; font-size: 9.5px; color: var(--dim); }
+
+#track-list { padding-bottom: calc(12px + var(--safe)); }
+
+.track {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 16px; border-bottom: 1px solid #111;
+  cursor: pointer; transition: background .12s; min-height: 58px;
+}
+.track:active { background: var(--s1); }
+.track.active { background: #140303; border-left: 3px solid var(--acc); padding-left: 13px; }
+
+.track-num {
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  color: var(--dim); width: 20px; text-align: center; flex-shrink: 0;
+}
+.track.active .track-num { color: var(--acc); }
+
+.thumb {
+  width: 54px; height: 38px; border-radius: 6px;
+  background: var(--s2); flex-shrink: 0; overflow: hidden; position: relative;
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb-ph {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--dim);
+}
+
+.track-info { flex: 1; min-width: 0; }
+.track-title {
+  font-size: 12.5px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--txt); line-height: 1.3;
+}
+.track.active .track-title { color: var(--acc); }
+.track-sub {
+  font-family: 'DM Mono', monospace; font-size: 10px;
+  color: var(--dim); margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.live-eq {
+  display: none; gap: 2px; align-items: flex-end;
+  height: 14px; flex-shrink: 0;
+}
+.track.active .live-eq { display: flex; }
+.live-eq span { width: 2px; background: var(--acc); border-radius: 1px; animation: eq-bar .9s ease-in-out infinite; }
+.live-eq span:nth-child(1){height:5px;} .live-eq span:nth-child(2){height:11px;animation-delay:.2s;} .live-eq span:nth-child(3){height:7px;animation-delay:.1s;}
+
+.track-empty {
+  text-align: center; padding: 40px 20px;
+  font-family: 'DM Mono', monospace; font-size: 11px; color: var(--dim); line-height: 2.2;
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ SETUP ═══════════════════ -->
+<div id="setup">
+  <div class="logo">
+    <div class="logo-mark">▶</div>
+    <div class="logo-word">YT<span>ctrl</span></div>
+  </div>
+
+  <p class="tagline">
+    Your YouTube playlist — no ads, background play,<br>
+    lock screen controls. Paste a URL and go.
+  </p>
+
+  <div class="field">
+    <div class="field-label">YouTube Playlist or Video URL</div>
+    <input id="url-in" type="url"
+      placeholder="https://youtube.com/watch?v=...&list=..."
+      autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+
+  <div class="opts">
+    <select id="q-sel">
+      <option value="tiny">144p — Lowest</option>
+      <option value="small">240p — Low</option>
+      <option value="medium" selected>360p — Medium</option>
+      <option value="large">480p — Good</option>
+      <option value="hd720">720p — HD</option>
+    </select>
+    <button id="audio-setup-btn" onclick="toggleSetupAudio()">
+      <span class="toggle-dot"></span>
+      <span id="audio-setup-lbl">Audio only</span>
+    </button>
+  </div>
+
+  <div id="err-msg"></div>
+
+  <button class="go-btn" onclick="launch()">Load Playlist →</button>
+
+  <p class="hint">
+    Host on GitHub Pages for permanent access — no server needed.<br>
+    Works in Brave for ad-free + background play + lock screen.
+  </p>
+</div>
+
+<!-- ═══════════════════ PLAYER ═══════════════════ -->
+<div id="player">
+
+  <!-- YouTube embed (API creates iframe inside this div) -->
+  <div id="yt-wrap">
+    <div id="yt-loading">
+      <div class="spinner"></div>
+      <div class="spin-txt">Loading player…</div>
+    </div>
+    <div id="play-ov" class="gone" onclick="tapStart()">
+      <div class="play-ring">▶</div>
+      <div class="play-hint">Tap to start</div>
+    </div>
+    <div id="yt-player-div"></div>
+  </div>
+
+  <!-- Audio-mode banner -->
+  <div id="audio-banner">
+    <div class="eq"><span></span><span></span><span></span><span></span></div>
+    <div class="ban-txt"><b>Audio Only</b> — video stream hidden</div>
+  </div>
+
+  <!-- Now playing -->
+  <div id="now-bar">
+    <span id="now-idx">♪</span>
+    <span id="now-title">Loading…</span>
+    <span id="now-badge">360p</span>
+  </div>
+
+  <!-- Controls -->
+  <div id="ctrl">
+    <div class="ctrl-row1">
+      <button class="btn" id="b-prev" onclick="ytCmd('previousVideo')" disabled>⏮</button>
+      <button class="btn" id="b-back" onclick="ytSeek(-10)" disabled>⏪</button>
+      <button class="btn play-btn" id="b-pp" onclick="togglePlay()" disabled>▶</button>
+      <button class="btn" id="b-fwd" onclick="ytSeek(10)" disabled>⏩</button>
+      <button class="btn" id="b-next" onclick="ytCmd('nextVideo')" disabled>⏭</button>
+    </div>
+    <div class="ctrl-row2">
+      <button class="back-pill" onclick="goBack()">← Back</button>
+      <button class="pill" id="p-audio" onclick="toggleAudio()">
+        <span class="pdot"></span><span id="p-audio-lbl">Video on</span>
+      </button>
+      <button class="pill" id="p-shuf" onclick="toggleShuffle()">
+        <span class="pdot"></span>Shuffle
+      </button>
+      <button class="pill" id="p-rep" onclick="toggleRepeat()">
+        <span class="pdot"></span>Repeat
+      </button>
+    </div>
+  </div>
+
+  <!-- Track list -->
+  <div id="track-list-wrap">
+    <div class="list-header">
+      <span class="list-title">Playlist</span>
+      <span id="list-count"></span>
+    </div>
+    <div id="track-list">
+      <div class="track-empty">Paste a URL above to load your playlist.</div>
+    </div>
+  </div>
+
+</div><!-- /player -->
+
+<script>
+// ═══════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════
+var S = {
+  ytp:       null,
+  ready:     false,
+  playing:   false,
+  audioOnly: false,
+  shuffle:   false,
+  repeat:    false,
+  quality:   'medium',
+  listId:    null,
+  vidId:     null,
+  // Track list data
+  tracks:    [],        // [{id, title, channel, thumbLoaded}]
+  curIdx:    -1,        // playlist index from YT API
+};
+
+// Title fetch cache: videoId -> {title, channel}
+var titleCache = {};
+// Pending noembed fetches
+var fetchingIds = {};
+
+// ═══════════════════════════════════════════════
+// Persistence
+// ═══════════════════════════════════════════════
+function savePrefs() {
+  try {
+    localStorage.setItem('ytctrl_url',     document.getElementById('url-in').value);
+    localStorage.setItem('ytctrl_quality', document.getElementById('q-sel').value);
+    localStorage.setItem('ytctrl_audio',   S.audioOnly ? '1' : '0');
+  } catch(e) {}
+}
+
+function loadPrefs() {
+  try {
+    var url = localStorage.getItem('ytctrl_url');
+    var q   = localStorage.getItem('ytctrl_quality');
+    var ao  = localStorage.getItem('ytctrl_audio');
+    if (url) document.getElementById('url-in').value = url;
+    if (q)   document.getElementById('q-sel').value  = q;
+    if (ao === '1') {
+      S.audioOnly = true;
+      var btn = document.getElementById('audio-setup-btn');
+      btn.classList.add('on');
+      document.getElementById('audio-setup-lbl').textContent = 'Audio only ✓';
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════
+// YouTube IFrame API
+// ═══════════════════════════════════════════════
+window.onYouTubeIframeAPIReady = function() {
+  if (S.listId || S.vidId) makePlayer();
+};
+
+(function() {
+  var sc = document.createElement('script');
+  sc.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(sc);
+})();
+
+// ═══════════════════════════════════════════════
+// Setup screen
+// ═══════════════════════════════════════════════
+function toggleSetupAudio() {
+  S.audioOnly = !S.audioOnly;
+  var btn = document.getElementById('audio-setup-btn');
+  btn.classList.toggle('on', S.audioOnly);
+  document.getElementById('audio-setup-lbl').textContent = S.audioOnly ? 'Audio only ✓' : 'Audio only';
+}
+
+function parseURL(raw) {
+  raw = (raw || '').trim();
+  var list = null, v = null;
+  try {
+    var u = new URL(raw);
+    list = u.searchParams.get('list');
+    v    = u.searchParams.get('v');
+    if (!v && u.hostname === 'youtu.be') v = u.pathname.slice(1).split('?')[0];
+  } catch(e) {
+    var lm = raw.match(/[?&]list=([A-Za-z0-9_-]+)/);
+    var vm = raw.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    list = lm ? lm[1] : null;
+    v    = vm ? vm[1] : null;
+  }
+  return { list: list, v: v };
+}
+
+function launch() {
+  var raw = document.getElementById('url-in').value;
+  S.quality = document.getElementById('q-sel').value;
+  hideErr();
+
+  if (!raw.trim()) { showErr('Paste a YouTube URL first.'); return; }
+  var ids = parseURL(raw);
+  if (!ids.list && !ids.v) { showErr('No playlist or video ID found. Make sure the URL has ?list= or a video link.'); return; }
+
+  S.listId = ids.list;
+  S.vidId  = ids.v;
+  savePrefs();
+
+  // Switch screens
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('player').style.display = 'flex';
+
+  // Apply audio-only from setup
+  applyAudioMode();
+
+  // Badge + sizing
+  document.getElementById('now-badge').textContent = qualLabel(S.quality);
+  setVideoHeight();
+
+  // Start player
+  if (window.YT && window.YT.Player) makePlayer();
+  // else onYouTubeIframeAPIReady fires when script loads
+}
+
+// ═══════════════════════════════════════════════
+// Player creation
+// ═══════════════════════════════════════════════
+function makePlayer() {
+  if (S.ytp) {
+    try { S.ytp.destroy(); } catch(e) {}
+    S.ytp = null; S.ready = false;
+    // Restore target div (destroy removes it)
+    ensurePlayerDiv();
+  }
+
+  var vars = {
+    autoplay:       0,
+    controls:       0,
+    rel:            0,
+    modestbranding: 1,
+    playsinline:    1,
+    enablejsapi:    1,
+    vq:             S.quality,
+    origin:         window.location.origin
+  };
+  if (S.listId) { vars.list = S.listId; vars.listType = 'playlist'; }
+  if (S.vidId)  { vars.videoId = S.vidId; }
+  if (S.repeat) { vars.loop = 1; if (S.listId) vars.playlist = S.listId; }
+
+  S.ytp = new YT.Player('yt-player-div', {
+    width: '100%', height: '100%',
+    playerVars: vars,
+    events: { onReady: onReady, onStateChange: onState, onError: onError }
+  });
+}
+
+function ensurePlayerDiv() {
+  if (!document.getElementById('yt-player-div')) {
+    var d = document.createElement('div');
+    d.id = 'yt-player-div';
+    document.getElementById('yt-wrap').appendChild(d);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Player events
+// ═══════════════════════════════════════════════
+function onReady(e) {
+  S.ready = true;
+  document.getElementById('yt-loading').classList.add('gone');
+  document.getElementById('play-ov').classList.remove('gone');
+  setBtns(true);
+  // Give YT a moment to populate playlist metadata
+  setTimeout(buildTrackList, 500);
+}
+
+function onState(e) {
+  var PS = YT.PlayerState;
+  if (e.data === PS.PLAYING) {
+    S.playing = true;
+    document.getElementById('b-pp').textContent = '⏸';
+    syncNowPlaying();
+    highlightCurrent();
+  } else if (e.data === PS.PAUSED || e.data === PS.BUFFERING) {
+    S.playing = false;
+    document.getElementById('b-pp').textContent = '▶';
+  } else if (e.data === PS.ENDED) {
+    if (!S.repeat) ytCmd('nextVideo');
+  }
+}
+
+function onError(e) {
+  // 100=not found, 101/150=embed restricted — skip
+  if (e.data === 100 || e.data === 101 || e.data === 150) {
+    setTimeout(function() { ytCmd('nextVideo'); }, 900);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Controls
+// ═══════════════════════════════════════════════
+function tapStart() {
+  if (!S.ready) return;
+  document.getElementById('play-ov').classList.add('gone');
+  try { S.ytp.playVideo(); } catch(e) {}
+}
+
+function togglePlay() {
+  if (!S.ready) return;
+  try { S.playing ? S.ytp.pauseVideo() : S.ytp.playVideo(); } catch(e) {}
+}
+
+function ytCmd(fn) {
+  if (!S.ready) return;
+  try { S.ytp[fn](); } catch(e) {}
+  setTimeout(function() { syncNowPlaying(); highlightCurrent(); }, 700);
+}
+
+function ytSeek(secs) {
+  if (!S.ready) return;
+  try { S.ytp.seekTo(Math.max(0, (S.ytp.getCurrentTime() || 0) + secs), true); } catch(e) {}
+}
+
+function toggleAudio() {
+  S.audioOnly = !S.audioOnly;
+  applyAudioMode();
+  savePrefs();
+}
+
+function applyAudioMode() {
+  var wrap   = document.getElementById('yt-wrap');
+  var banner = document.getElementById('audio-banner');
+  var pill   = document.getElementById('p-audio');
+  var lbl    = document.getElementById('p-audio-lbl');
+  wrap.classList.toggle('audio-only', S.audioOnly);
+  banner.classList.toggle('show', S.audioOnly);
+  pill.classList.toggle('on', S.audioOnly);
+  lbl.textContent = S.audioOnly ? 'Audio only' : 'Video on';
+}
+
+function toggleShuffle() {
+  S.shuffle = !S.shuffle;
+  document.getElementById('p-shuf').classList.toggle('shuf-on', S.shuffle);
+  if (S.ready) rebuildPlayer();
+}
+
+function toggleRepeat() {
+  S.repeat = !S.repeat;
+  document.getElementById('p-rep').classList.toggle('on', S.repeat);
+  if (S.ready) { try { S.ytp.setLoop(S.repeat); } catch(e) {} }
+}
+
+function rebuildPlayer() {
+  S.ready = false; S.playing = false;
+  setBtns(false);
+  document.getElementById('yt-loading').classList.remove('gone');
+  document.getElementById('play-ov').classList.add('gone');
+  makePlayer();
+}
+
+function goBack() {
+  if (S.ytp) { try { S.ytp.stopVideo(); S.ytp.destroy(); } catch(e) {} S.ytp = null; }
+  S.ready = false; S.playing = false; S.tracks = []; S.curIdx = -1;
+  setBtns(false);
+  document.getElementById('yt-loading').classList.remove('gone');
+  document.getElementById('play-ov').classList.add('gone');
+  document.getElementById('track-list').innerHTML = '<div class="track-empty">Paste a URL above to load your playlist.</div>';
+  document.getElementById('list-count').textContent = '';
+  document.getElementById('now-title').textContent = 'Loading…';
+  document.getElementById('now-idx').textContent = '♪';
+  ensurePlayerDiv();
+  document.getElementById('player').style.display = 'none';
+  document.getElementById('setup').style.display = 'flex';
+}
+
+function jumpToTrack(idx) {
+  if (!S.ready) return;
+  try { S.ytp.playVideoAt(idx); } catch(e) {}
+  setTimeout(function() { syncNowPlaying(); highlightCurrent(); }, 600);
+}
+
+// ═══════════════════════════════════════════════
+// Track list
+// ═══════════════════════════════════════════════
+function buildTrackList() {
+  if (!S.ready || !S.ytp) return;
+  var ids = [];
+  try { ids = S.ytp.getPlaylist() || []; } catch(e) {}
+
+  if (ids.length === 0) {
+    // Single video fallback
+    try {
+      var d = S.ytp.getVideoData();
+      if (d && d.video_id) ids = [d.video_id];
+    } catch(e) {}
+  }
+
+  S.tracks = ids.map(function(id, i) {
+    return { id: id, title: titleCache[id] ? titleCache[id].title : null, channel: titleCache[id] ? titleCache[id].channel : null };
+  });
+
+  document.getElementById('list-count').textContent = ids.length + ' tracks';
+  renderTrackList();
+  syncNowPlaying();
+  highlightCurrent();
+
+  // Lazy-fetch titles for visible tracks
+  setupLazyFetch();
+}
+
+function renderTrackList() {
+  var list = document.getElementById('track-list');
+  if (S.tracks.length === 0) {
+    list.innerHTML = '<div class="track-empty">No tracks found. Try a different URL.</div>';
+    return;
+  }
+  var html = '';
+  S.tracks.forEach(function(t, i) {
+    var thumbUrl = 'https://i.ytimg.com/vi/' + t.id + '/mqdefault.jpg';
+    html += '<div class="track" id="tr-' + i + '" onclick="jumpToTrack(' + i + ')">';
+    html += '<div class="track-num">' + (i+1) + '</div>';
+    html += '<div class="thumb"><img data-src="' + thumbUrl + '" alt="" onerror="this.parentElement.innerHTML=\'<div class=thumb-ph>♪</div>\'"></div>';
+    html += '<div class="track-info">';
+    html += '<div class="track-title" id="tt-' + i + '">' + (t.title ? esc(t.title) : '<span style="color:var(--dim)">Loading…</span>') + '</div>';
+    html += '<div class="track-sub" id="tc-' + i + '">' + (t.channel ? esc(t.channel) : '') + '</div>';
+    html += '</div>';
+    html += '<div class="live-eq"><span></span><span></span><span></span></div>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+
+  // Intersection observer for lazy image + title loading
+  setupLazyFetch();
+}
+
+function setupLazyFetch() {
+  // Lazy load images
+  var imgs = document.querySelectorAll('.thumb img[data-src]');
+  if ('IntersectionObserver' in window) {
+    var imgObs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var img = entry.target;
+          img.src = img.dataset.src;
+          delete img.dataset.src;
+          imgObs.unobserve(img);
+        }
+      });
+    }, { rootMargin: '200px' });
+    imgs.forEach(function(img) { imgObs.observe(img); });
+  } else {
+    // Fallback: load all
+    imgs.forEach(function(img) { img.src = img.dataset.src; delete img.dataset.src; });
+  }
+
+  // Lazy fetch titles via noembed
+  var tracks = document.querySelectorAll('.track');
+  if ('IntersectionObserver' in window) {
+    var titleObs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var el = entry.target;
+          var idx = parseInt(el.id.replace('tr-', ''));
+          if (!isNaN(idx) && S.tracks[idx]) fetchTitle(idx);
+          titleObs.unobserve(el);
+        }
+      });
+    }, { rootMargin: '300px' });
+    tracks.forEach(function(tr) {
+      var idx = parseInt(tr.id.replace('tr-', ''));
+      if (!isNaN(idx) && S.tracks[idx] && !S.tracks[idx].title) titleObs.observe(tr);
+    });
+  } else {
+    // Fallback: fetch first 50
+    for (var i = 0; i < Math.min(50, S.tracks.length); i++) fetchTitle(i);
+  }
+}
+
+function fetchTitle(idx) {
+  var t = S.tracks[idx];
+  if (!t || t.title || fetchingIds[t.id]) return;
+  if (titleCache[t.id]) {
+    applyTitle(idx, titleCache[t.id].title, titleCache[t.id].channel);
+    return;
+  }
+  fetchingIds[t.id] = true;
+  var url = 'https://noembed.com/embed?url=https://www.youtube.com/watch?v=' + t.id;
+  fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var title   = d.title   || ('Track ' + (idx+1));
+      var channel = d.author_name || '';
+      titleCache[t.id] = { title: title, channel: channel };
+      applyTitle(idx, title, channel);
+    })
+    .catch(function() {
+      applyTitle(idx, 'Track ' + (idx+1), '');
+    });
+}
+
+function applyTitle(idx, title, channel) {
+  if (S.tracks[idx]) { S.tracks[idx].title = title; S.tracks[idx].channel = channel; }
+  var te = document.getElementById('tt-' + idx);
+  var ce = document.getElementById('tc-' + idx);
+  if (te) te.textContent = title;
+  if (ce) ce.textContent = channel;
+  // Update now-playing bar if this is current
+  try {
+    var cur = S.ytp ? S.ytp.getPlaylistIndex() : -1;
+    if (cur === idx) document.getElementById('now-title').textContent = title;
+  } catch(e) {}
+}
+
+function syncNowPlaying() {
+  if (!S.ready || !S.ytp) return;
+  try {
+    var d   = S.ytp.getVideoData();
+    var idx = S.ytp.getPlaylistIndex ? S.ytp.getPlaylistIndex() : -1;
+    var pl  = S.ytp.getPlaylist ? (S.ytp.getPlaylist() || []) : [];
+    if (d && d.title) {
+      document.getElementById('now-title').textContent = d.title;
+      // Cache it
+      if (d.video_id) {
+        titleCache[d.video_id] = { title: d.title, channel: d.author || '' };
+        if (idx >= 0 && S.tracks[idx]) applyTitle(idx, d.title, d.author || '');
+      }
+    }
+    if (idx >= 0 && pl.length) document.getElementById('now-idx').textContent = (idx+1) + ' / ' + pl.length;
+    S.curIdx = idx;
+  } catch(e) {}
+}
+
+function highlightCurrent() {
+  document.querySelectorAll('.track').forEach(function(el) { el.classList.remove('active'); });
+  try {
+    var idx = S.ytp ? S.ytp.getPlaylistIndex() : -1;
+    if (idx >= 0) {
+      var el = document.getElementById('tr-' + idx);
+      if (el) {
+        el.classList.add('active');
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════
+function setBtns(on) {
+  ['b-prev','b-back','b-pp','b-fwd','b-next'].forEach(function(id) {
+    document.getElementById(id).disabled = !on;
+  });
+}
+
+function setVideoHeight() {
+  var h = Math.round(window.innerWidth * 0.5625);
+  document.getElementById('yt-wrap').style.height = h + 'px';
+}
+
+function qualLabel(q) {
+  return {tiny:'144p', small:'240p', medium:'360p', large:'480p', hd720:'720p'}[q] || q;
+}
+
+function showErr(m) { var e = document.getElementById('err-msg'); e.style.display='block'; e.textContent=m; }
+function hideErr()  { document.getElementById('err-msg').style.display='none'; }
+
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════════════════
+// Init & misc event listeners
+// ═══════════════════════════════════════════════
+loadPrefs();
+
+window.addEventListener('resize', function() {
+  if (document.getElementById('player').style.display !== 'none') setVideoHeight();
+});
+
+document.getElementById('url-in').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') launch();
+});
+
+// Periodically sync now-playing info while playing
+setInterval(function() {
+  if (S.playing && S.ready) syncNowPlaying();
+}, 5000);
+</script>
+</body>
+</html>
