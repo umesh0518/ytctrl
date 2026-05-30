@@ -443,12 +443,7 @@ function onState(e) {
     forceVolume();
     syncNowPlaying();
     highlightCurrent();
-  } else if (e.data===PS.BUFFERING) {
-    S.playing=false;
-    document.getElementById('b-pp').textContent='▶';
-    // iOS: new video starts buffering = call forceVolume now before PLAYING fires
-    forceVolume();
-  } else if (e.data===PS.PAUSED) {
+  } else if (e.data===PS.BUFFERING || e.data===PS.PAUSED) {
     S.playing=false;
     document.getElementById('b-pp').textContent='▶';
   } else if (e.data===PS.ENDED) {
@@ -462,28 +457,47 @@ function onError(e) {
 
 // ═══════════════════════════════════════════
 // iOS audio — forceVolume with retries
-// The key insight: after playVideoAt() iOS sometimes needs
-// multiple setVolume calls as the new video loads.
-// We retry every 300ms for 3 seconds until confirmed unmuted.
 // ═══════════════════════════════════════════
+// Navigate by rebuilding iframe src — bypasses postMessage entirely.
+// This is the only reliable way to avoid iOS muting on track switch.
+function playTrackBySrc(videoId, playlistId) {
+  var q = S.quality || 'medium';
+  var origin = encodeURIComponent(window.location.origin);
+  // autoplay=1 works here because the page already has audio unlock from first tap
+  var src = 'https://www.youtube.com/embed/' + videoId
+    + '?autoplay=1'
+    + '&controls=1'
+    + '&playsinline=1'
+    + '&rel=0'
+    + '&modestbranding=1'
+    + '&enablejsapi=1'
+    + '&vq=' + q
+    + '&origin=' + origin;
+  if (playlistId) src += '&list=' + playlistId;
+
+  // Find the actual iframe the API created and swap its src
+  var wrap = document.getElementById('yt-player-div');
+  var iframe = wrap ? wrap.querySelector('iframe') : null;
+  if (!iframe) {
+    // Fallback: use API's loadVideoById
+    try { S.ytp.loadVideoById({videoId: videoId, suggestedQuality: q}); } catch(e) {}
+    return;
+  }
+  // Swap src — browser reloads iframe fresh, always unmuted, autoplay=1
+  iframe.src = src;
+  S.playing = true;
+  document.getElementById('b-pp').textContent = '⏸';
+}
+
 function forceVolume() {
+  // Keep for initial play only (before first track switch)
   if (unmuteTimer) clearInterval(unmuteTimer);
-  // Call immediately in next animation frame
-  requestAnimationFrame(function() {
-    try { if (S.ytp) { S.ytp.setVolume(100); S.ytp.unMute(); } } catch(e) {}
-  });
-  // Then retry every 250ms for 4s as backup (iOS loads new video async)
   var attempts = 0;
   unmuteTimer = setInterval(function() {
     attempts++;
-    try {
-      if (S.ytp) {
-        S.ytp.setVolume(100);  // setVolume BEFORE unMute - order matters on iOS
-        S.ytp.unMute();
-      }
-    } catch(e) {}
-    if (attempts >= 16) clearInterval(unmuteTimer);
-  }, 250);
+    try { if (S.ytp) { S.ytp.setVolume(100); S.ytp.unMute(); } } catch(e) {}
+    if (attempts >= 6) clearInterval(unmuteTimer);
+  }, 300);
 }
 
 // ═══════════════════════════════════════════
@@ -491,26 +505,22 @@ function forceVolume() {
 // ═══════════════════════════════════════════
 function navTrack(dir) {
   if (!S.ready) return;
-  var targetIdx=-1;
-  if (S.shuffle && shuffleOrder.length>0) {
-    S.shufflePos=(S.shufflePos+dir+shuffleOrder.length)%shuffleOrder.length;
-    targetIdx=shuffleOrder[S.shufflePos];
+  var targetIdx = -1;
+  if (S.shuffle && shuffleOrder.length > 0) {
+    S.shufflePos = (S.shufflePos + dir + shuffleOrder.length) % shuffleOrder.length;
+    targetIdx = shuffleOrder[S.shufflePos];
   } else {
     try {
-      var cur=S.ytp.getPlaylistIndex()||0;
-      var total=Math.max(S.tracks.length,(S.ytp.getPlaylist()||[]).length)||1;
-      targetIdx=(cur+dir+total)%total;
-    } catch(e) {
-      try{ dir>0?S.ytp.nextVideo():S.ytp.previousVideo(); }catch(e2){}
-      setTimeout(forceVolume,300);
-      return;
-    }
+      var cur   = S.ytp.getPlaylistIndex() || 0;
+      var total = Math.max(S.tracks.length, (S.ytp.getPlaylist()||[]).length) || 1;
+      targetIdx = (cur + dir + total) % total;
+    } catch(e) { targetIdx = 0; }
   }
-  if (targetIdx>=0) {
-    try { S.ytp.playVideoAt(targetIdx); } catch(e){}
-    forceVolume();  // call immediately + retry loop handles async iOS video load
+  if (targetIdx >= 0 && S.tracks[targetIdx]) {
+    playTrackBySrc(S.tracks[targetIdx].id, S.listId);
+    S.curIdx = targetIdx;
+    setTimeout(function(){ highlightByIdx(targetIdx); updateNowBarFromTracks(targetIdx); }, 300);
   }
-  setTimeout(function(){ syncNowPlaying(); highlightCurrent(); },700);
 }
 
 function togglePlay() {
@@ -541,10 +551,10 @@ function toggleShuffle() {
   document.getElementById('p-shuf').classList.toggle('shuf-on',S.shuffle);
   if (S.shuffle && S.tracks.length>0) {
     buildShuffleOrder(); S.shufflePos=0;
-    if (S.ready) {
-      try{ S.ytp.playVideoAt(shuffleOrder[0]); }catch(e){}
-      setTimeout(forceVolume,200);
-      setTimeout(function(){ syncNowPlaying(); highlightCurrent(); },700);
+    if (S.ready && S.tracks[shuffleOrder[0]]) {
+      playTrackBySrc(S.tracks[shuffleOrder[0]].id, S.listId);
+      S.curIdx = shuffleOrder[0];
+      setTimeout(function(){ highlightByIdx(shuffleOrder[0]); updateNowBarFromTracks(shuffleOrder[0]); }, 300);
     }
   }
 }
@@ -562,11 +572,11 @@ function toggleRepeat() {
 }
 
 function jumpToTrack(idx) {
-  if (!S.ready) return;
-  try{ S.ytp.playVideoAt(idx); }catch(e){}
-  if (S.shuffle) S.shufflePos=shuffleOrder.indexOf(idx);
-  setTimeout(forceVolume,200);
-  setTimeout(function(){ syncNowPlaying(); highlightCurrent(); },700);
+  if (!S.ready || !S.tracks[idx]) return;
+  if (S.shuffle) S.shufflePos = shuffleOrder.indexOf(idx);
+  playTrackBySrc(S.tracks[idx].id, S.listId);
+  S.curIdx = idx;
+  setTimeout(function(){ highlightByIdx(idx); updateNowBarFromTracks(idx); }, 300);
 }
 
 function goBack() {
@@ -648,11 +658,26 @@ function syncNowPlaying() {
   } catch(e){}
 }
 function highlightCurrent() {
+  var idx = -1;
+  try { idx = S.ytp ? S.ytp.getPlaylistIndex() : -1; } catch(e) {}
+  if (idx < 0) idx = S.curIdx;
+  highlightByIdx(idx);
+}
+
+function highlightByIdx(idx) {
   document.querySelectorAll('.track').forEach(function(el){ el.classList.remove('active'); });
-  try {
-    var idx=S.ytp?S.ytp.getPlaylistIndex():-1;
-    if(idx>=0){ var el=document.getElementById('tr-'+idx); if(el){ el.classList.add('active'); el.scrollIntoView({behavior:'smooth',block:'nearest'}); } }
-  } catch(e){}
+  if (idx >= 0) {
+    var el = document.getElementById('tr-' + idx);
+    if (el) { el.classList.add('active'); el.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+  }
+}
+
+function updateNowBarFromTracks(idx) {
+  var t = S.tracks[idx];
+  if (!t) return;
+  var total = S.tracks.length;
+  document.getElementById('now-idx').textContent   = (idx+1) + ' / ' + total;
+  document.getElementById('now-title').textContent = t.title || ('Track ' + (idx+1));
 }
 
 // ═══════════════════════════════════════════
