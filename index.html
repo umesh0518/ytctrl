@@ -357,106 +357,78 @@ function launch() {
 // ═══════════════════════════════════════════
 // Piped API — fetch all tracks
 // ═══════════════════════════════════════════
-// ── InnerTube API: fetch full playlist from YouTube directly ──
+// ── Playlist fetch: scrape YouTube page for ytInitialData ──
 function fetchFullPlaylist(listId) {
   document.getElementById('playlist-loading').classList.add('show');
   document.getElementById('pl-txt').textContent = 'Fetching playlist…';
-  fetchInnerTubePage(listId, null, []);
-}
 
-function fetchInnerTubePage(listId, continuation, acc) {
-  var url = 'https://www.youtube.com/youtubei/v1/browse';
-  var body = continuation
-    ? {
-        continuation: continuation,
-        context: { client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en' } }
-      }
-    : {
-        browseId: 'VL' + listId,
-        context: { client: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en' } }
-      };
-
-  // YouTube blocks direct CORS - use corsproxy.io which supports POST
-  var proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
-  fetch(proxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-cors-api-key': 'temp_' },
-    body: JSON.stringify(body)
+  // Fetch the public playlist page — YouTube allows cross-origin GET of HTML pages
+  fetch('https://www.youtube.com/playlist?list=' + listId + '&hl=en', {
+    headers: { 'Accept-Language': 'en-US,en;q=0.9' }
   })
   .then(function(r) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
+    return r.text();
   })
-  .then(function(data) {
-    var token = null;
-    var videos = extractInnerTubeVideos(data, function(t) { token = t; });
-    videos.forEach(function(v) { acc.push(v); });
-    document.getElementById('pl-txt').textContent = 'Loading… ' + acc.length + ' tracks';
-
-    if (token && acc.length < 5000) {
-      // Small delay to avoid rate limiting
-      setTimeout(function() { fetchInnerTubePage(listId, token, acc); }, 300);
+  .then(function(html) {
+    var videos = parsePlaylistPage(html);
+    document.getElementById('playlist-loading').classList.remove('show');
+    if (videos.length > 0) {
+      videos.forEach(function(t) {
+        if (t.title) titleCache[t.id] = { title: t.title, channel: t.channel || '' };
+      });
+      S.tracks = videos;
+      document.getElementById('list-count').textContent = videos.length + ' tracks';
+      renderTrackList();
+      syncNowPlaying();
+      highlightCurrent();
     } else {
-      onPlaylistLoaded(acc, listId);
+      buildTrackListFromIframe();
     }
   })
   .catch(function(e) {
-    console.warn('InnerTube failed:', e);
+    console.warn('Playlist page fetch failed:', e);
     document.getElementById('playlist-loading').classList.remove('show');
     buildTrackListFromIframe();
   });
 }
 
-function extractInnerTubeVideos(data, onToken) {
+function parsePlaylistPage(html) {
   var videos = [];
-  // Walk the response tree looking for playlistVideoRenderer items
-  function walk(obj, depth) {
-    if (!obj || depth > 25) return;
-    if (Array.isArray(obj)) { obj.forEach(function(i) { walk(i, depth+1); }); return; }
-    if (typeof obj !== 'object') return;
+  // ytInitialData is embedded as JSON in the page
+  var match = html.match(/var ytInitialData\s*=\s*(\{.+?\});\s*<\/script>/s);
+  if (!match) {
+    // Try alternate pattern
+    match = html.match(/ytInitialData\s*=\s*(\{[\s\S]+?\});\s*(?:\/\/|<\/script>)/);
+  }
+  if (!match) return videos;
 
-    // Video item
-    if (obj.playlistVideoRenderer) {
-      var r = obj.playlistVideoRenderer;
-      var id = r.videoId;
-      if (id) {
-        var title = '';
-        try { title = r.title.runs[0].text; } catch(e) { try { title = r.title.simpleText; } catch(e2) {} }
-        var channel = '';
-        try { channel = r.shortBylineText.runs[0].text; } catch(e) {}
-        videos.push({ id: id, title: title || null, channel: channel || null });
+  try {
+    var data = JSON.parse(match[1]);
+    // Walk to find videoIds
+    function walk(obj, depth) {
+      if (!obj || depth > 30) return;
+      if (Array.isArray(obj)) { obj.forEach(function(i) { walk(i, depth+1); }); return; }
+      if (typeof obj !== 'object') return;
+      if (obj.playlistVideoRenderer) {
+        var r = obj.playlistVideoRenderer;
+        if (r.videoId) {
+          var title = '';
+          try { title = r.title.runs[0].text; } catch(e) {}
+          if (!title) try { title = r.title.simpleText; } catch(e) {}
+          var channel = '';
+          try { channel = r.shortBylineText.runs[0].text; } catch(e) {}
+          videos.push({ id: r.videoId, title: title||null, channel: channel||null });
+        }
+        return;
       }
-      return;
+      Object.keys(obj).forEach(function(k) { walk(obj[k], depth+1); });
     }
-
-    // Continuation token
-    if (obj.continuationItemRenderer) {
-      try {
-        var tok = obj.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
-        if (tok) onToken(tok);
-      } catch(e) {}
-      return;
-    }
-
-    // Recurse
-    Object.keys(obj).forEach(function(k) { walk(obj[k], depth+1); });
+    walk(data, 0);
+  } catch(e) {
+    console.warn('ytInitialData parse error:', e);
   }
-  walk(data, 0);
   return videos;
-}
-
-function onPlaylistLoaded(acc, listId) {
-  document.getElementById('playlist-loading').classList.remove('show');
-  if (acc.length > 0) {
-    acc.forEach(function(t) { if (t.title) titleCache[t.id] = { title: t.title, channel: t.channel||'' }; });
-    S.tracks = acc;
-    document.getElementById('list-count').textContent = acc.length + ' tracks';
-    renderTrackList();
-    syncNowPlaying();
-    highlightCurrent();
-  } else {
-    buildTrackListFromIframe();
-  }
 }
 function buildTrackListFromIframe() {
   if (!S.ready||!S.ytp) return;
@@ -482,7 +454,7 @@ function makePlayer() {
     volume:         100,    // start fully unmuted
     mute:           0,      // explicit unmute in playerVars
     vq:             S.quality,
-    origin:         window.location.origin
+    origin:         window.location.href
   };
   if (S.listId) { vars.list=S.listId; vars.listType='playlist'; }
   if (S.vidId)  { vars.videoId=S.vidId; }
@@ -547,7 +519,7 @@ function onError(e) {
 // This is the only reliable way to avoid iOS muting on track switch.
 function playTrackBySrc(videoId, playlistId) {
   var q = S.quality || 'medium';
-  var origin = encodeURIComponent(window.location.origin);
+  var origin = encodeURIComponent(window.location.href);
   // autoplay=1 works here because the page already has audio unlock from first tap
   var src = 'https://www.youtube.com/embed/' + videoId
     + '?autoplay=1'
