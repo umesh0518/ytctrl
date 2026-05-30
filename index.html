@@ -398,6 +398,7 @@ var S = {
   tracks:    [],
   curIdx:    -1,
   shufflePos: 0,
+  needsUnmute: false,  // unmute on first PLAYING after iOS tap
 };
 
 // Title fetch cache: videoId -> {title, channel}
@@ -559,6 +560,11 @@ function onState(e) {
   if (e.data === PS.PLAYING) {
     S.playing = true;
     document.getElementById('b-pp').textContent = '⏸';
+    // Unmute here - guaranteed playback has started on iOS
+    if (S.needsUnmute) {
+      S.needsUnmute = false;
+      try { S.ytp.unMute(); S.ytp.setVolume(100); } catch(e) {}
+    }
     syncNowPlaying();
     highlightCurrent();
   } else if (e.data === PS.PAUSED || e.data === PS.BUFFERING) {
@@ -586,21 +592,24 @@ function onError(e) {
 function tapStart() {
   if (!S.ready) return;
   document.getElementById('play-ov').classList.add('gone');
+  S.needsUnmute = true;  // flag: unmute on first PLAYING event
   try {
-    // iOS requires mute trick: mute first, play, then unmute
-    // This satisfies WebKit autoplay policy reliably
     S.ytp.mute();
     S.ytp.playVideo();
-    // Unmute after a short delay once playback has started
-    setTimeout(function() {
-      try { S.ytp.unMute(); S.ytp.setVolume(100); } catch(e) {}
-    }, 800);
   } catch(e) {}
 }
 
 function togglePlay() {
   if (!S.ready) return;
-  try { S.playing ? S.ytp.pauseVideo() : S.ytp.playVideo(); } catch(e) {}
+  if (S.playing) {
+    try { S.ytp.pauseVideo(); } catch(e) {}
+  } else {
+    // If somehow still muted (e.g. user paused before unmute fired), unmute now
+    try {
+      if (S.ytp.isMuted()) { S.ytp.unMute(); S.ytp.setVolume(100); }
+      S.ytp.playVideo();
+    } catch(e) {}
+  }
 }
 
 function ytCmd(fn) {
